@@ -1,0 +1,6 @@
+[submodule "tree-sitter-modelica"]
+	path = tree-sitter-modelica
+	url = https://github.com/OpenModelica/tree-sitter-modelica.git
+[submodule "OMFrontend.js"]
+	path = OMFrontend.js
+	url = https://github.com/OpenModelica/OMFrontend.js.git
