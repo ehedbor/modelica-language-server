@@ -110,7 +110,7 @@ export default class Analyzer {
    * @param range range to update, or `undefined` to replace the whole file
    */
   public updateDocument(uri: LSP.DocumentUri, text: string, range?: LSP.Range): void {
-    this.#project.updateDocument(url.fileURLToPath(uri), text);
+    this.#project.updateDocument(url.fileURLToPath(uri), text, range);
   }
 
   /**
