@@ -33,16 +33,17 @@
  *
  */
 
-import { TextDocument } from "vscode-languageserver-textdocument";
-import * as LSP from "vscode-languageserver/node";
-import Parser from "web-tree-sitter";
-import * as fs from "node:fs/promises";
-import * as url from "node:url";
-import * as path from "node:path";
+import { TextDocument } from 'vscode-languageserver-textdocument';
+import * as LSP from 'vscode-languageserver/node';
+import Parser from 'web-tree-sitter';
+import * as fs from 'node:fs/promises';
+import * as url from 'node:url';
+import * as path from 'node:path';
 
-import { logger } from "../util/logger";
-import { ModelicaLibrary } from "./library";
-import { ModelicaProject } from "./project";
+import { logger } from '../util/logger';
+import { positionToPoint } from '../util/tree-sitter';
+import { ModelicaLibrary } from './library';
+import { ModelicaProject } from './project';
 
 export class ModelicaDocument implements TextDocument {
   readonly #library: ModelicaLibrary;
@@ -68,26 +69,68 @@ export class ModelicaDocument implements TextDocument {
   ): Promise<ModelicaDocument> {
     logger.debug(`Loading document at '${documentPath}'...`);
 
-    const content = await fs.readFile(documentPath, "utf-8");
+    const content = await fs.readFile(documentPath, 'utf-8');
     // On caching: see issue https://github.com/tree-sitter/tree-sitter/issues/824
     // TL;DR: it's faster to re-parse the content than it is to deserialize the cached tree.
     const tree = library.project.parser.parse(content);
 
     return new ModelicaDocument(
       library,
-      TextDocument.create(url.fileURLToPath(documentPath), "modelica", 0, content),
-      tree
+      TextDocument.create(url.fileURLToPath(documentPath), 'modelica', 0, content),
+      tree,
     );
   }
 
   /**
    * Updates a document.
+   *
    * @param text the modification
+   * @param range the range to update, or `undefined` to replace the whole file
    */
-  public async update(text: string): Promise<void> {
-    TextDocument.update(this.#document, [{ text }], this.version + 1);
-    this.#tree = this.project.parser.parse(text);
-    return;
+  public async update(text: string, range?: LSP.Range): Promise<void> {
+    if (range === undefined) {
+      TextDocument.update(this.#document, [{ text }], this.version + 1);
+      this.#tree = this.project.parser.parse(text);
+      return;
+    }
+
+    const startIndex = this.offsetAt(range.start);
+    const startPosition = positionToPoint(range.start);
+    const oldEndIndex = this.offsetAt(range.end);
+    const oldEndPosition = positionToPoint(range.end);
+    const newEndIndex = startIndex + text.length;
+
+    TextDocument.update(this.#document, [{ text, range }], this.version + 1);
+    const newEndPosition = positionToPoint(this.positionAt(newEndIndex));
+
+    this.#tree.edit({
+      startIndex,
+      startPosition,
+      oldEndIndex,
+      oldEndPosition,
+      newEndIndex,
+      newEndPosition,
+    });
+
+    this.#tree = this.project.parser.parse((index: number, position?: Parser.Point) => {
+      if (position) {
+        return this.getText({
+          start: {
+            character: position.column,
+            line: position.row,
+          },
+          end: {
+            character: position.column + 1,
+            line: position.row,
+          },
+        });
+      } else {
+        return this.getText({
+          start: this.positionAt(index),
+          end: this.positionAt(index + 1),
+        });
+      }
+    }, this.#tree);
   }
 
   public getText(range?: LSP.Range | undefined): string {
@@ -132,8 +175,8 @@ export class ModelicaDocument implements TextDocument {
     const fileName = directories.pop()!;
 
     const packagePath: string[] = [this.#library.name, ...directories];
-    if (fileName !== "package.mo") {
-      packagePath.push(fileName.slice(0, fileName.length - ".mo".length));
+    if (fileName !== 'package.mo') {
+      packagePath.push(fileName.slice(0, fileName.length - '.mo'.length));
     }
 
     return packagePath;
